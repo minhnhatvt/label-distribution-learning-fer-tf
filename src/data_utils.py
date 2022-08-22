@@ -110,11 +110,6 @@ def _parse_data_train(filename_table, transform_image_pixels, config):
             neighbor_image = tf.image.random_flip_left_right(neighbor_image)
             neighbor_image = tf.pad(neighbor_image, paddings=[[config.pad_size, config.pad_size], [config.pad_size, config.pad_size], [0, 0]])
             neighbor_image = tf.image.random_crop(neighbor_image, size=config.input_size + [3])
-
-            # neighbor_image = tf.image.resize(neighbor_image, [IMG_SIZE+PAD_SIZE*2, IMG_SIZE+PAD_SIZE*2])
-            # neighbor_image = tf.image.random_flip_left_right(neighbor_image)
-            # neighbor_image = tf.image.random_crop(neighbor_image, size=(IMG_SIZE,IMG_SIZE,3))
-
             neighbor_image = transform_image_pixels(neighbor_image)
 
             neighbor_images.append(neighbor_image)
@@ -133,13 +128,7 @@ def _training_preprocess(transform_image_pixels, config):
         image = tf.image.random_flip_left_right(image)
         image = tf.pad(image, paddings=[[config.pad_size, config.pad_size], [config.pad_size, config.pad_size], [0, 0]])
         image = tf.image.random_crop(image, size=config.input_size + [3])
-
-        # image = tf.image.resize(image, [IMG_SIZE+PAD_SIZE*2, IMG_SIZE+PAD_SIZE*2])
-        # image = tf.image.random_flip_left_right(image)
-        # image = tf.image.random_crop(image, size=(IMG_SIZE,IMG_SIZE,3))
-
         image = random_erasing(image, probability=0.5)
-
         image = transform_image_pixels(image)
         return image, va_regression_true, label, neighbor_images, knn_weights, idx, neighbor_index
 
@@ -149,7 +138,6 @@ def _parse_data_test(config):
     def parse_data_test(file_path, valence, arousal, label):
         image = tf.io.read_file(file_path)
         image = tf.image.decode_image(image, channels=3, expand_animations=False)  # full raw_image
-
         va_regression_true = tf.convert_to_tensor([valence, arousal])  # shape (2,)
         image = tf.image.resize(image, config.input_size)
         return image, va_regression_true, label
@@ -161,10 +149,6 @@ def _testing_preprocess(transform_image_pixels, config):
 
         image = tf.pad(image, paddings=[[config.pad_size, config.pad_size], [config.pad_size, config.pad_size], [0, 0]])
         image = tf.image.central_crop(image, config.input_size[0] / (config.input_size[0] + 2 * config.pad_size))
-
-        # image = tf.image.resize(image, [config.input_size[0]+config.pad_size*2, config.input_size[0]+config.pad_size*2])
-        # image = tf.image.central_crop(image,config.input_size[0]/(config.input_size[0]+config.pad_size*2) )
-
         image = transform_image_pixels(image)
 
         return image, va_regression_true, label
