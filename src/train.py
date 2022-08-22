@@ -13,20 +13,31 @@ import argparse
 import sys
 sys.path.append("cfg_files")
 
+gpu_devices = tf.config.experimental.list_physical_devices("GPU")
+for device in gpu_devices:
+    tf.config.experimental.set_memory_growth(device, True)
+
 def parse_arg(argv=None):
     parser = argparse.ArgumentParser()
-    # parser.add_argument("--train_data", type=str,
-    #                     default="",
-    #                     help="Path to the train_data.csv, should have the following columns:\n'subDirectory_filePath,expression,valence,arousal,knn'",
-    #                     required=True)
-    # parser.add_argument("--val_data", type=str,
-    #                     default=None,
-    #                     help="Path to the validation_data.csv, should have the following columns:\n'subDirectory_filePath,expression'")
+    parser.add_argument("--train_data_path", type=str,
+                        default="data/rafdb/raf_train.csv",
+                        help="Path to the train_data.csv, should have the following columns:\n'subDirectory_filePath,expression,valence,arousal,knn'",
+                        required=True)
+    parser.add_argument("--train_image_dir", type=str,
+                    default="data/rafdb/aligned",
+                    help="Path to the directory containing training images",
+                    required=True)
+    parser.add_argument("--val_data_path", type=str,
+                        default=None,
+                        help="Path to the validation_data.csv, should have the following columns:\n'subDirectory_filePath,expression'")
+    parser.add_argument("--val_image_dir", type=str,
+                    default=None,
+                    help="Path to the validation_data.csv, should have the following columns:\n'subDirectory_filePath,expression'")
     # parser.add_argument("--pretrained_weights", type=str,
     #                     default=None,
     #                     help="load the pretrained weights of the model in /path/to/model_weights")
     parser.add_argument("--cfg", type=str,
-                        default="config",
+                        default="config_resnet50_raf",
                         help="config file_name")
     parser.add_argument("--resume",
                         action= "store_true",
@@ -61,13 +72,10 @@ def train_step(model, optimizer, x_batch_train, y_batch_train, x_batch_aux, conf
         feat, preds = model(x_batch_train, training=True)
         attention_weights = model.weighting_net((feat), (feat_aux), training=True)
 
-        # attention_weights = tf.ones((B,K))
-
         # construct label distribution
         emotion_cls_pred = preds
         emotion_cls_true = y_batch_train[0]
-        # emotion_cls_true = tf.one_hot(emotion_cls_true,depth=7)
-        # neighbor_dist = construct_target_distribution(tf.zeros(B,tf.uint8), (preds_aux), knn_weights, attention_weights, lamb=0)
+
 
         if idx is not None:
             lamb = tf.gather(lamb_hat, idx)
@@ -118,7 +126,7 @@ def test_step(model, x_batch, y_batch):
 def train(model, optimizer, train_dataset, global_labels, config,
           val_dataset=None, epochs=5, load_checkpoint=False,
           loss_weights_dict=None,
-          class_weights_dict=None):
+          class_weights=None):
     # define metrics for controlling process
     train_loss = tf.keras.metrics.Mean('train_loss', dtype=tf.float32)
     val_loss = tf.keras.metrics.Mean('val_loss', dtype=tf.float32)
@@ -126,12 +134,20 @@ def train(model, optimizer, train_dataset, global_labels, config,
     val_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('val_accuracy')
 
     batches_per_epoch = tf.data.experimental.cardinality(train_dataset).numpy()
-
     ckpt_dir = config.checkpoint_dir
+
     # init values
     dcm_loss = utils.DiscriminativeLoss(config.num_classes, feature_dim=config.feature_dim)
-    lamb_hat = tf.Variable(tf.zeros(shape=(len(global_labels), 1), dtype=tf.float32) + 0.5)
-    lamb_optim = tf.keras.optimizers.SGD(10)
+    lamb_hat = tf.Variable(tf.zeros(shape=(len(global_labels), 1), dtype=tf.float32) + config.lamb_init)
+    lamb_optim = tf.keras.optimizers.SGD(config.lamb_lr, config.lamb_beta)
+    class_weights_dict = None
+    if class_weights:
+        if type(class_weights) == bool:
+            class_weights = sklearn.utils.class_weight.compute_class_weight("balanced",
+                                                                            classes=np.unique(global_labels.numpy()),
+                                                                            y=global_labels.numpy())
+            print(class_weights)
+        class_weights_dict = {i:v for i,v in enumerate(class_weights)}
     best_val = 0
     iter_count = 0
     val_interval = config.val_interval
@@ -186,7 +202,7 @@ def train(model, optimizer, train_dataset, global_labels, config,
                          ('emotion_accuracy', emotion_acc),
                          ('avg_lamb', loss_dict['lamb'])])
 
-            if iter_count % 1000 == 0 and val_dataset is not None:
+            if iter_count % val_interval == 0 and val_dataset is not None:
                 val_loss.reset_states()
                 val_accuracy.reset_states()
                 for x_batch, va_regression_true, emotion_cls_true in val_dataset:
@@ -203,31 +219,30 @@ def train(model, optimizer, train_dataset, global_labels, config,
 
         save_path = manager.save()
         if (curr_epoch) % save_interval == 0:
-            model.save_weights('f{ckpt_dir}/epoch_' + str(curr_epoch) + '/Model')
+            model.save_weights(f'{ckpt_dir}/epoch_' + str(curr_epoch) + '/Model')
 
         print('End of Epoch: {}, Iter: {}, Train Loss: {:.4}, Emotion Acc: {:.4}'.format(curr_epoch, iter_count,
                                                                                          train_loss.result(),
                                                                                          train_accuracy.result()))
         # Validation
         if val_dataset is not None:
-            if (curr_epoch) % val_interval == 0:  # validate
-                val_loss.reset_states()
-                val_accuracy.reset_states()
+            val_loss.reset_states()
+            val_accuracy.reset_states()
 
-                for x_batch, va_regression_true, emotion_cls_true in val_dataset:
-                    y_batch = (emotion_cls_true, va_regression_true)
-                    preds, total_loss, loss_dict = test_step(model, x_batch, y_batch)
+            for x_batch, va_regression_true, emotion_cls_true in val_dataset:
+                y_batch = (emotion_cls_true, va_regression_true)
+                preds, total_loss, loss_dict = test_step(model, x_batch, y_batch)
 
-                    val_loss(total_loss)  # update metric
-                    val_accuracy(emotion_cls_true, preds)  # update metric
+                val_loss(total_loss)  # update metric
+                val_accuracy(emotion_cls_true, preds)  # update metric
 
-                print('Val loss: {:.4},  Val accuracy: {:.4}'.format(val_loss.result(), val_accuracy.result()))
-                print('===================================================')
+            print('Val loss: {:.4},  Val accuracy: {:.4}'.format(val_loss.result(), val_accuracy.result()))
+            print('===================================================')
 
-                if (val_accuracy.result() > best_val):
-                    model.save_weights(f"{ckpt_dir}/best_val/Model")
-                    print("====Best validation model saved!====")
-                    best_val = val_accuracy.result()
+            if (val_accuracy.result() > best_val):
+                model.save_weights(f"{ckpt_dir}/best_val/Model")
+                print("====Best validation model saved!====")
+                best_val = val_accuracy.result()
         print()
     return model
 
@@ -240,29 +255,28 @@ def main(train_data_path, image_dir, config, val_data_path=None, val_image_dir =
 
     train_dataset = get_train_dataset(train_data_path, image_dir, config)
     optimizer = utils.get_optimizer(train_dataset, config)
-    val_dataset = get_test_dataset(val_data_path, image_dir, config) if val_data_path is not None else None
+    val_dataset = get_test_dataset(val_data_path, val_image_dir, config) if val_data_path is not None else None
     print("Dataset loaded!")
 
     train_data = pd.read_csv(train_data_path)
     global_labels = tf.constant(train_data['expression'], dtype=tf.int32)
 
+
     print("Start training...")
     train(model, optimizer, train_dataset, global_labels, config,
           val_dataset=val_dataset,
           epochs=config.epochs,
-          load_checkpoint=args.resume)
+          load_checkpoint=args.resume,
+          class_weights=config.class_weights)
 
 if __name__ == '__main__':
     args = parse_arg()
-    # run_train(args.train_data,
-    #           val_data_path=args.val_data)
 
 
     config = __import__(args.cfg).config
     print(config.__dict__)
 
-    main(train_data_path= "data/rafdb/raf_train_knn_res50_3085.csv", image_dir="data/rafdb/aligned", config= config,
-         val_data_path="data/rafdb/test.csv", val_image_dir="data/rafdb/aligned",
-         )
+    main(train_data_path= args.train_data_path, image_dir=args.train_image_dir, config= config,
+         val_data_path=args.val_data_path, val_image_dir=args.val_image_dir)
 
 

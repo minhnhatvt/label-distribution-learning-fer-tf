@@ -162,8 +162,8 @@ def _testing_preprocess(transform_image_pixels, config):
         image = tf.pad(image, paddings=[[config.pad_size, config.pad_size], [config.pad_size, config.pad_size], [0, 0]])
         image = tf.image.central_crop(image, config.input_size[0] / (config.input_size[0] + 2 * config.pad_size))
 
-        # image = tf.image.resize(image, [IMG_SIZE+PAD_SIZE*2, IMG_SIZE+PAD_SIZE*2])
-        # image = tf.image.central_crop(image,IMG_SIZE/(IMG_SIZE+PAD_SIZE*2) )
+        # image = tf.image.resize(image, [config.input_size[0]+config.pad_size*2, config.input_size[0]+config.pad_size*2])
+        # image = tf.image.central_crop(image,config.input_size[0]/(config.input_size[0]+config.pad_size*2) )
 
         image = transform_image_pixels(image)
 
@@ -264,29 +264,29 @@ def get_test_dataset(test_data_path, image_dir, config):
 if __name__ == '__main__':
     import sys
     sys.path.append("cfg_files")
-    config = __import__("config").config
+    config = __import__("config_resnet18_raf").config
 
-    train_dataset = get_train_dataset("data/rafdb/raf_train_knn_res50_3085.csv", image_dir="data/rafdb/aligned", config=config)
+    train_dataset = get_train_dataset("data/rafdb/raf_train.csv", image_dir="data/rafdb/aligned", config=config)
     print(get_dataset_len(train_dataset))
 
     import matplotlib.pyplot as plt
 
-    # idx = 5
-    # for i in train_dataset.take(1):
-    #     i = i[:-2]
-    #     print(i[0].shape)
-    #     plt.figure()
-    #     plt.imshow((i[0][idx] + 1) / 2)
-    #
-    #     plt.figure()
-    #     print(i[-2].shape)
-    #     print(i[-1].shape)
-    #     for j, aux_i in enumerate(i[-2][idx]):
-    #         plt.subplot(1, 8, j + 1)
-    #         plt.imshow((aux_i + 1) / 2)
-    #         plt.axis('off')
-    #
-    # plt.show()
+    idx = 5
+    for i in train_dataset.take(1):
+        i = i[:-2]
+        print(i[0].shape)
+        plt.figure()
+        plt.imshow((i[0][idx] + 1) / 2)
+
+        plt.figure()
+        print(i[-2].shape)
+        print(i[-1].shape)
+        for j, aux_i in enumerate(i[-2][idx]):
+            plt.subplot(1, 8, j + 1)
+            plt.imshow((aux_i + 1) / 2)
+            plt.axis('off')
+
+    plt.show()
 
     print("="*50)
     test_dataset = get_test_dataset("data/rafdb/test.csv", image_dir="data/rafdb/aligned", config=config)

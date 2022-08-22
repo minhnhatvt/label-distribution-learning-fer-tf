@@ -31,8 +31,6 @@ class AdaptiveSimNet(tf.keras.Model):
         B, K, D = feat_aux.shape
 
 
-        #B, K, D = list(map(int,[B,K,D]))
-
         feat_repeat = tf.keras.layers.RepeatVector(K)(feat)  # shape (B,K, D)
         x = tf.keras.layers.Concatenate(axis=-1)([feat_repeat, feat_aux])  # shape (B,K,2*D)
 
@@ -64,12 +62,13 @@ class ExpNet(tf.keras.Model):
         elif pretrained=="msceleb":
             if backbone=="resnet18":
                 self.backbone = tf.keras.models.load_model("pretrained/resnet18.h5")
+                self.global_pool = tf.keras.layers.GlobalAveragePooling2D()
             elif backbone=="resnet50":
                 self.backbone = tf.keras.models.load_model("pretrained/resnet50.h5")
             elif backbone=="resnet101":
                 self.backbone = tf.keras.models.load_model("pretrained/resnet101.h5")
             elif backbone=="resnet152":
-                self.backbone = tf.keras.models.load_model("msceleb_IR_152_Epoch_59.h5")
+                self.backbone = tf.keras.models.load_model("pretrained/resnet152.h5")
 
 
         else:
@@ -77,8 +76,8 @@ class ExpNet(tf.keras.Model):
         self.pretrained=pretrained
         # ================================================================
 
-        # self.global_pool = tf.keras.layers.GlobalAveragePooling2D()
-        self.classifier = tf.keras.layers.Dense(num_classes, activation='softmax',
+
+        self.fc = tf.keras.layers.Dense(num_classes, activation='softmax',
                                         kernel_initializer=tf.keras.initializers.HeNormal(),
                                         kernel_regularizer=tf.keras.regularizers.L2(0.001)
                                         )
@@ -90,8 +89,11 @@ class ExpNet(tf.keras.Model):
         feat_map = self.backbone(x, training=training)
 
         x = feat_map
+        if self.pretrained == "msceleb" and self.backbone_type=='resnet18':
+            feat_map = tf.transpose(feat_map, (0, 2, 3, 1))
+            x = self.global_pool(feat_map)
 
-        out = self.classifier(x)
+        out = self.fc(x)
 
         return x, out
 
