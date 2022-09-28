@@ -14,8 +14,11 @@ pip install git+https://github.com/qubvel/classification_models.git
 Download the [RAF-DB](http://www.whdeng.cn/RAF/model1.html#dataset) dataset and extract the `aligned` folder (contains aligned faces) into `data/rafdb/aligned`
 We provide the pseudo valence-arousal as well as the pre-built K-nearest-neighbors for each instance in `train.csv`. The annotation file should have the following columns
 
-    |subDirectory_filePath|expression|valence|arousal|knn|
-    | -------- | -------- | -------- |------- |-------- |
+| subDirectory_filePath | expression | valence | arousal | knn |
+|:---------------------:|:----------:|:-------:|:-------:|:---:|
+| ...                   | ...        | ...     | ...     | ... |
+
+The preprocessed data annotations are available at [Data Annotation](https://drive.google.com/drive/folders/1nm91FPPj2Se305GWC-zpxqnNfEQvz2uq?usp=sharing)
     
 # Trained model
 Coming soon...
